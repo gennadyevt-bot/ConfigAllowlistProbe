@@ -1,0 +1,5 @@
+[
+  { "name": "example.com",  "host": "example.com",  "port": 443, "https": true },
+  { "name": "google",       "host": "google.com",   "port": 443, "https": true },
+  { "name": "lenta",        "host": "lenta.ru",     "port": 443, "https": true }
+]
