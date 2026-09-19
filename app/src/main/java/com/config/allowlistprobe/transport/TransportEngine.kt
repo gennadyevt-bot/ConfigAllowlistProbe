@@ -6,9 +6,9 @@ package com.config.allowlistprobe.transport
  * не вырастала лапшой: каждый будущий транспорт (DIRECT_TCP, TLS_443,
  * HTTP_CONNECT, WEBSOCKET_HTTPS) — отдельный модуль с единым интерфейсом.
  */
-interface ProbeTransport {
+interface TransportEngine {
     val name: String
-    fun probe(host: String, port: Int, timeoutMs: Int): TransportResult
+    fun probe(): TransportResult
 }
 
 data class TransportResult(
@@ -18,12 +18,13 @@ data class TransportResult(
     val connectMs: Long
 )
 
-class TransportEngine {
-    private val transports = LinkedHashMap<String, ProbeTransport>()
+/** Реестр будущих транспортов. Пока пуст — без реализации обхода. */
+class TransportRegistry {
+    private val engines = LinkedHashMap<String, TransportEngine>()
 
-    fun register(t: ProbeTransport) {
-        transports[t.name] = t
+    fun register(e: TransportEngine) {
+        engines[e.name] = e
     }
 
-    fun available(): List<String> = transports.keys.toList()
+    fun available(): List<String> = engines.keys.toList()
 }
