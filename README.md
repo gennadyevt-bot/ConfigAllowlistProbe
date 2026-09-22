@@ -43,4 +43,4 @@ ConfigAdBlock не используются и не изменяются.
 - `transport/TransportEngine` — интерфейс-заготовка под будущие экспериментальные транспорты (пока без реализации обхода)
 
 ## Сборка
-GitHub Actions: push в main или diagnostics/** → unit tests, lint, APK как workflow artifact (не GitHub Release).
+GitHub Actions: push в main или diagnostics/** → lint, APK как workflow artifact (не GitHub Release). Автоматических unit-тестов в проекте пока нет; сетевую матрицу нужно проверить на телефоне.
