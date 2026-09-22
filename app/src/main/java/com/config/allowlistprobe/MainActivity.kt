@@ -54,7 +54,7 @@ class MainActivity : Activity() {
         setContentView(root)
         val last = logger.loadLastSession()
         out.text = if (last.isNotEmpty()) last.substring(0, minOf(last.length, 4000)) + "\n\n(последняя сессия — нажми ЗАПУСТИТЬ ПРОВЕРКУ для новой)"
-        else "Готово. Нажми ЗАПУСТИТЬ ПРОВЕРКУ. v0.1.2"
+        else "Готово. Нажми ЗАПУСТИТЬ ПРОВЕРКУ. v0.1.3"
     }
 
     private fun saveBaseline() {
@@ -122,7 +122,7 @@ class MainActivity : Activity() {
             return
         }
         val handle = net.networkHandle
-        logger.log("version=0.1.2\n" + engine.networkInfo())
+        logger.log("version=0.1.3\n" + engine.networkInfo())
 
         // Run the controlled matrix first so it is captured during short restriction windows.
         sb.append("IP / SNI / Host (до 3 минут):\n")
