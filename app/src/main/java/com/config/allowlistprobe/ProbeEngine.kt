@@ -78,19 +78,19 @@ class ProbeEngine(private val ctx: Context, private val log: SessionLogger) {
     }
 
     // ---------- DNS ----------
-    fun resolveFamily(host: String): Pair<List<InetAddress>, List<InetAddress>> {
+    fun resolveFamily(network: Network, host: String): Pair<List<InetAddress>, List<InetAddress>> {
         return try {
-            val all = InetAddress.getAllByName(host)
+            val all = network.getAllByName(host)
             all.filterIsInstance<Inet4Address>() to all.filterIsInstance<Inet6Address>()
         } catch (e: Exception) {
             emptyList<InetAddress>() to emptyList()
         }
     }
 
-    fun dnsSystem(host: String): Triple<Boolean, String, Long> {
+    fun dnsSystem(network: Network, host: String): Triple<Boolean, String, Long> {
         val t0 = System.nanoTime()
         return try {
-            val all = InetAddress.getAllByName(host)
+            val all = network.getAllByName(host)
             val ms = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
             val fam = all.joinToString(",") { if (it is Inet6Address) "v6" else "v4" }
             Triple(true, all.joinToString(",") { it.hostAddress ?: "?" } + " [" + fam + "]", ms)
@@ -179,7 +179,7 @@ class ProbeEngine(private val ctx: Context, private val log: SessionLogger) {
     }
 
     fun tcpHost(network: Network, host: String, port: Int, timeoutMs: Int = 5000): Pair<Boolean, Long> {
-        val (v4, v6) = resolveFamily(host)
+        val (v4, v6) = resolveFamily(network, host)
         val ip = v4.firstOrNull() ?: v6.firstOrNull() ?: return false to 0
         return tcpIp(network, ip, port, timeoutMs)
     }
@@ -304,7 +304,7 @@ class ProbeEngine(private val ctx: Context, private val log: SessionLogger) {
                 val payload = ByteArray(1200)
                 SecureRandom().nextBytes(payload)
                 payload[0] = 0xC0.toByte()
-                s.send(DatagramPacket(payload, payload.size, InetSocketAddress(host, 443)))
+                s.send(DatagramPacket(payload, payload.size, InetSocketAddress(network.getAllByName(host).first(), 443)))
                 val buf = ByteArray(1500)
                 s.receive(DatagramPacket(buf, buf.size))
                 "RESPONSE" to TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)

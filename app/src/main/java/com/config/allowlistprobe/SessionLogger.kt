@@ -65,7 +65,9 @@ class SessionLogger(private val ctx: Context) {
     fun exportToDownloads(): String? {
         val stamp = SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.US).format(Date())
         val fileName = "ConfigAllowlistProbe_$stamp.txt"
-        val text = buildReport()
+        val current = if (summary.isEmpty()) loadLastSession() else buildReport()
+        val baseline = ctx.getSharedPreferences("baseline", Context.MODE_PRIVATE).getString("report", "") ?: ""
+        val text = current + if (baseline.isNotEmpty()) "\n=== SAVED BASELINE ===\n$baseline" else ""
         return try {
             if (Build.VERSION.SDK_INT >= 29) {
                 val values = ContentValues().apply {

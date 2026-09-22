@@ -18,6 +18,7 @@ class MainActivity : Activity() {
     private lateinit var btnRun: Button
     private val ui = Handler(Looper.getMainLooper())
     private var running = false
+    private var completed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +46,7 @@ class MainActivity : Activity() {
         btnRun.setOnClickListener { runAll() }
         btnBaseline.setOnClickListener { saveBaseline() }
         btnExport.setOnClickListener {
+            if (running) return@setOnClickListener
             val name = logger.exportToDownloads()
             Toast.makeText(this, if (name != null) "Отчёт: Download/$name" else "Ошибка экспорта", Toast.LENGTH_LONG).show()
         }
@@ -52,14 +54,19 @@ class MainActivity : Activity() {
         setContentView(root)
         val last = logger.loadLastSession()
         out.text = if (last.isNotEmpty()) last.substring(0, minOf(last.length, 4000)) + "\n\n(последняя сессия — нажми ЗАПУСТИТЬ ПРОВЕРКУ для новой)"
-        else "Готово. Нажми ЗАПУСТИТЬ ПРОВЕРКУ. v0.1.1"
+        else "Готово. Нажми ЗАПУСТИТЬ ПРОВЕРКУ. v0.1.2"
     }
 
     private fun saveBaseline() {
+        if (running || !completed) {
+            Toast.makeText(this, "Сначала дождись завершения проверки", Toast.LENGTH_SHORT).show()
+            return
+        }
         val sp = getSharedPreferences("baseline", MODE_PRIVATE)
         val o = JSONObject()
         for ((k, v) in logger.summary) o.put(k, v)
-        sp.edit().putString("snap", o.toString()).putLong("at", System.currentTimeMillis()).apply()
+        sp.edit().putString("snap", o.toString()).putString("report", logger.buildReport())
+            .putLong("at", System.currentTimeMillis()).apply()
         Toast.makeText(this, "BASELINE сохранён (${logger.summary.size} тестов)", Toast.LENGTH_SHORT).show()
     }
 
@@ -72,12 +79,17 @@ class MainActivity : Activity() {
     private fun runAll() {
         if (running) return
         running = true
+        completed = false
         btnRun.isEnabled = false
         btnRun.text = "ПРОВЕРКА ИДЁТ..."
         out.text = "Сеть:\n" + engine.networkInfo() + "\nРаботаю..."
         Thread {
             try {
                 runProbe()
+            } catch (e: Exception) {
+                logger.log("SESSION_ERROR ${e.javaClass.simpleName}: ${e.message}")
+                logger.saveLastSession()
+                publish("Проверка прервана: ${e.message}. Сохрани отчёт.")
             } finally {
                 ui.post {
                     running = false
@@ -110,17 +122,52 @@ class MainActivity : Activity() {
             return
         }
         val handle = net.networkHandle
+        logger.log("version=0.1.2\n" + engine.networkInfo())
+
+        // Run the controlled matrix first so it is captured during short restriction windows.
+        sb.append("IP / SNI / Host (до 3 минут):\n")
+        sb.append("Ошибки сертификата и ответы 403/421 сами по себе не доказывают блокировку.\n")
+        for (host in listOf("lenta.ru", "ya.ru", "vk.com")) {
+            val (v4, v6) = engine.resolveFamily(net, host)
+            val addresses = listOfNotNull(v4.firstOrNull(), v6.firstOrNull())
+            if (addresses.isEmpty()) {
+                logger.test("MATRIX_DNS_$host", "FAIL") { it.append("No address on network=$handle\n") }
+                sb.append("$host: DNS FAIL\n")
+            }
+            for (ip in addresses) {
+                sb.append("$host → ${ip.hostAddress}\n")
+                val (reachable, ms) = engine.tcpIp(net, ip, 443, 3000)
+                val prefix = "MATRIX_${host}_${ip.hostAddress}"
+                logger.test("${prefix}_TCP", if (reachable) "OK" else "FAIL") {
+                    it.append("network=$handle ip=${ip.hostAddress}:443 time=${ms}ms\n")
+                }
+                if (!reachable) {
+                    sb.append("  TCP FAIL — TLS/Host пропущены\n")
+                    publish(sb.toString())
+                    continue
+                }
+                for (case in MatrixProbe.cases(host)) {
+                    publish(sb.toString() + "  ${case.label}: проверяю…\n")
+                    val r = MatrixProbe.run(net, ip, host, case)
+                    logger.test("${prefix}_${case.label}", r.outcome) { it.append(r.detail) }
+                    sb.append("  ${case.label}: ${r.outcome}\n")
+                    logger.saveLastSession()
+                }
+            }
+            publish(sb.toString())
+        }
+        sb.append("Для вывода нужен BASELINE той же матрицы без ограничений.\n\n")
 
         // ---------- DNS ----------
         sb.append("DNS:\n")
-        val (dnsOk, dnsInfo, dnsMs) = engine.dnsSystem("example.com")
+        val (dnsOk, dnsInfo, dnsMs) = engine.dnsSystem(net, "example.com")
         logger.test("DNS_SYSTEM", if (dnsOk) "OK" else "FAIL") {
             it.append("host=example.com\nresult=").append(dnsInfo).append('\n')
             it.append("time=").append(dnsMs).append("ms\n")
         }
         sb.append("  SYSTEM: ").append(if (dnsOk) "OK ${dnsMs}ms" else "FAIL").append('\n')
 
-        val (exV4, exV6) = engine.resolveFamily("example.com")
+        val (exV4, exV6) = engine.resolveFamily(net, "example.com")
         logger.test("DNS_A", if (exV4.isNotEmpty()) "OK" else "FAIL") {
             it.append("host=example.com\nfamily=v4\n")
             it.append("ips=").append(exV4.joinToString(",") { a -> a.hostAddress ?: "?" }).append('\n')
@@ -163,7 +210,8 @@ class MainActivity : Activity() {
 
         for (t in targets) {
             sb.append(t.name).append(" (").append(t.host).append(':').append(t.port).append("):\n")
-            val (v4s, v6s) = engine.resolveFamily(t.host)
+            publish(sb.toString() + "Проверяю ${t.host}…\n")
+            val (v4s, v6s) = engine.resolveFamily(net, t.host)
             val v4 = v4s.firstOrNull()
             val v6 = v6s.firstOrNull()
 
@@ -322,10 +370,11 @@ class MainActivity : Activity() {
             it.append("time=").append(qms).append("ms\n")
         }
         sb.append("UDP443_PROBE: ").append(q).append('\n')
+        sb.append("Это не QUIC-тест: TIMEOUT не доказывает блокировку UDP/QUIC.\n")
 
         // ---------- Итог: без ALLOWLIST CONFIRMED ----------
         val verdict = when {
-            anyHttps && dnsOk && dohOk -> "FULL INTERNET"
+            anyHttps && dnsOk && dohOk -> "TESTED ENDPOINTS REACHABLE (не весь интернет)"
             anyHttps -> "PARTIAL"
             anyTcp443 -> "RESTRICTED SUSPECTED (TCP проходит, TLS/HTTPS режется)"
             else -> "NO CONNECTIVITY"
@@ -345,6 +394,11 @@ class MainActivity : Activity() {
             }
         }
 
+        val sameNetwork = engine.activeNetwork() == net
+        logger.log("networkUnchanged=$sameNetwork")
+        if (!sameNetwork) sb.append("ВНИМАНИЕ: активная сеть сменилась — повтори замер.\n")
+        logger.log("SCREEN SUMMARY\n" + sb.toString())
+        ui.post { completed = sameNetwork }
         sb.append("\n--- журнал: СОХРАНИТЬ ОТЧЁТ ---\n")
         logger.saveLastSession()
         publish(sb.toString())
