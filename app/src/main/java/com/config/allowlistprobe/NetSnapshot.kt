@@ -74,15 +74,7 @@ data class NetSnapshot(
                     append(" earfcn=").append(safe { c.cellIdentity.earfcn })
                     if (Build.VERSION.SDK_INT >= 29) append(" rsrp=").append(safe { c.cellSignalStrength.rsrp })
                 }
-                Build.VERSION.SDK_INT >= 29 && c is CellInfoNr -> {
-                    val id = (c as CellInfoNr).cellIdentity
-                    buildString {
-                        append("NR nci=").append(safe { id.nci })
-                        append(" tac=").append(safe { id.tac })
-                        append(" pci=").append(safe { id.pci })
-                        append(" nrarfcn=").append(safe { id.nrarfcn })
-                    }
-                }
+                Build.VERSION.SDK_INT >= 29 && c is CellInfoNr -> "NR " + c.toString()
                 c is CellInfoWcdma -> buildString {
                     append("WCDMA cid=").append(safe { c.cellIdentity.cid })
                     append(" lac=").append(safe { c.cellIdentity.lac })
