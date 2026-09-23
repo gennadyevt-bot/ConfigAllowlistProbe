@@ -74,11 +74,14 @@ data class NetSnapshot(
                     append(" earfcn=").append(safe { c.cellIdentity.earfcn })
                     if (Build.VERSION.SDK_INT >= 29) append(" rsrp=").append(safe { c.cellSignalStrength.rsrp })
                 }
-                Build.VERSION.SDK_INT >= 29 && c is CellInfoNr -> buildString {
-                    append("NR nci=").append(safe { c.cellIdentity.nci })
-                    append(" tac=").append(safe { c.cellIdentity.tac })
-                    append(" pci=").append(safe { c.cellIdentity.pci })
-                    append(" nrarfcn=").append(safe { c.cellIdentity.nrarfcn })
+                Build.VERSION.SDK_INT >= 29 && c is CellInfoNr -> {
+                    val id = c.cellIdentity
+                    buildString {
+                        append("NR nci=").append(safe { id.nci })
+                        append(" tac=").append(safe { id.tac })
+                        append(" pci=").append(safe { id.pci })
+                        append(" nrarfcn=").append(safe { id.nrarfcn })
+                    }
                 }
                 c is CellInfoWcdma -> buildString {
                     append("WCDMA cid=").append(safe { c.cellIdentity.cid })
@@ -128,8 +131,7 @@ data class NetSnapshot(
                         TelephonyManager.NETWORK_TYPE_LTE -> "LTE"
                         TelephonyManager.NETWORK_TYPE_NR -> "NR"
                         TelephonyManager.NETWORK_TYPE_HSPAP, TelephonyManager.NETWORK_TYPE_HSPA,
-                        TelephonyManager.NETWORK_TYPE_HSDPA, TelephonyManager.NETWORK_TYPE_UMTS,
-                        TelephonyManager.NETWORK_TYPE_WCDMA -> "3G"
+                        TelephonyManager.NETWORK_TYPE_HSDPA, TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
                         TelephonyManager.NETWORK_TYPE_EDGE, TelephonyManager.NETWORK_TYPE_GPRS -> "2G"
                         else -> "TYPE_" + tm.dataNetworkType
                     }
