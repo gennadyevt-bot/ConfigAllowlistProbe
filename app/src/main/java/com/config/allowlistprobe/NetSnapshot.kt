@@ -75,7 +75,7 @@ data class NetSnapshot(
                     if (Build.VERSION.SDK_INT >= 29) append(" rsrp=").append(safe { c.cellSignalStrength.rsrp })
                 }
                 Build.VERSION.SDK_INT >= 29 && c is CellInfoNr -> {
-                    val id = c.cellIdentity
+                    val id = (c as CellInfoNr).cellIdentity
                     buildString {
                         append("NR nci=").append(safe { id.nci })
                         append(" tac=").append(safe { id.tac })
