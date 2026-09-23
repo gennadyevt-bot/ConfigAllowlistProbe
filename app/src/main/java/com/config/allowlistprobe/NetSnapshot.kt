@@ -1,5 +1,6 @@
 package com.config.allowlistprobe
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
@@ -65,6 +66,7 @@ data class NetSnapshot(
         private fun safe(f: () -> Any?): String =
             try { f()?.toString() ?: "?" } catch (_: Exception) { "?" }
 
+        @SuppressLint("MissingPermission")
         private fun describeCell(c: CellInfo): String = try {
             when {
                 c is CellInfoLte -> buildString {
@@ -90,6 +92,7 @@ data class NetSnapshot(
             }
         } catch (_: Exception) { c.javaClass.simpleName }
 
+        @SuppressLint("MissingPermission")
         fun capture(ctx: Context, cm: ConnectivityManager,
                     transportName: (Network?) -> String): NetSnapshot {
             val n: Network? = cm.activeNetwork
