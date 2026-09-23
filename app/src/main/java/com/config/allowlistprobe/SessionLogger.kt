@@ -20,6 +20,7 @@ class SessionLogger(private val ctx: Context) {
     private val fmt = SimpleDateFormat("HH:mm:ss", Locale.US)
     val summary = LinkedHashMap<String, String>()   // TEST -> OK/FAIL/TIMEOUT
     val detail = StringBuilder()
+    var testContext: String = "UNKNOWN"
 
     fun log(line: String) {
         val ts = fmt.format(Date())
@@ -42,7 +43,8 @@ class SessionLogger(private val ctx: Context) {
 
     fun buildReport(): String {
         return "=== ConfigAllowlistProbe ===\n" +
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()) + "\n\n" +
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()) + "\n" +
+            "TEST_CONTEXT=" + testContext + "\n\n" +
             sb.toString() + "\n=== DETAIL ===\n" + detail.toString()
     }
 

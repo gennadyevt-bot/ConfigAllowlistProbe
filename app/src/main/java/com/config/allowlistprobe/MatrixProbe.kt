@@ -58,7 +58,7 @@ object MatrixProbe {
                     detail.append("TLS=OK protocol=${tls.session.protocol} certificate=VALID peer=$peer\n")
                     if (Build.VERSION.SDK_INT >= 29) detail.append("ALPN=${tls.applicationProtocol}\n")
                     stage = "HTTP"
-                    val request = "HEAD / HTTP/1.1\r\nHost: ${case.host}\r\nUser-Agent: ConfigAllowlistProbe/0.1.2\r\nConnection: close\r\n\r\n"
+                    val request = "HEAD / HTTP/1.1\r\nHost: ${case.host}\r\nUser-Agent: ConfigAllowlistProbe/0.1.4\r\nConnection: close\r\n\r\n"
                     tls.getOutputStream().write(request.toByteArray(Charsets.US_ASCII))
                     tls.getOutputStream().flush()
                     val input = tls.getInputStream()

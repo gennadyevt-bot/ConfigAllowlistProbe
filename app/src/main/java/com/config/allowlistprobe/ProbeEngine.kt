@@ -27,8 +27,95 @@ data class Target(val name: String, val host: String, val port: Int, val https: 
 
 class ProbeEngine(private val ctx: Context, private val log: SessionLogger) {
 
-    private val cm: ConnectivityManager
+    val cm: ConnectivityManager
         get() = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    fun snapshot(): NetSnapshot = NetSnapshot.capture(ctx, cm, ::transportName)
+
+    // ---------- TCP attempt с классификацией результата ----------
+    data class TcpAttempt(val result: String, val ms: Long, val error: String?)
+
+    fun tcpAttempt(network: Network, ip: InetAddress, port: Int, timeoutMs: Int = 5000): TcpAttempt {
+        val t0 = System.nanoTime()
+        fun ms() = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
+        return try {
+            network.socketFactory.createSocket().use { s ->
+                s.connect(InetSocketAddress(ip, port), timeoutMs)
+                TcpAttempt("OK", ms(), null)
+            }
+        } catch (e: SocketTimeoutException) {
+            TcpAttempt("TIMEOUT", ms(), e.javaClass.simpleName)
+        } catch (e: java.net.SocketException) {
+            val msg = e.message ?: ""
+            when {
+                msg.contains("refused", true) -> TcpAttempt("REFUSED", ms(), msg)
+                msg.contains("reset", true) || msg.contains("ECONNRESET", true) ->
+                    TcpAttempt("RESET", ms(), msg)
+                else -> TcpAttempt("OTHER_ERROR", ms(), e.javaClass.simpleName + ": " + msg)
+            }
+        } catch (e: Exception) {
+            TcpAttempt("OTHER_ERROR", ms(), e.javaClass.simpleName + ": " + (e.message ?: "?"))
+        }
+    }
+
+    // ---------- Классификация результата TLS ----------
+    fun classifyTls(r: TlsResult): String = when {
+        r.ok -> "TLS_OK"
+        r.error == null -> "TLS_OTHER_ERROR"
+        r.error.startsWith("CertificateException") -> "TLS_CERT_ERROR"
+        r.error.contains("SocketTimeoutException") -> "TLS_TIMEOUT"
+        r.error.contains("SocketException") -> "TLS_RESET"
+        else -> "TLS_OTHER_ERROR"
+    }
+
+    // ---------- TLS без SNI (только диагностика, без hostname verification) ----------
+    fun tlsNoSni(network: Network, ip: InetAddress, port: Int = 443): TlsResult {
+        val t0 = System.nanoTime()
+        return try {
+            val plain = network.socketFactory.createSocket()
+            plain.connect(InetSocketAddress(ip, port), 5000)
+            val connectMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
+            val f: SSLSocketFactory = SSLContext.getDefault().socketFactory
+            val s = f.createSocket(plain, ip.hostAddress, port, true) as SSLSocket
+            s.soTimeout = 6000
+            val p = s.sslParameters
+            p.serverNames = emptyList()
+            s.sslParameters = p
+            val t1 = System.nanoTime()
+            s.startHandshake()
+            val tlsMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t1)
+            val ver = s.session.protocol ?: "?"
+            s.close()
+            TlsResult(true, ver, "-", connectMs, tlsMs, null)
+        } catch (e: Exception) {
+            TlsResult(false, "-", "-",
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0), -1,
+                e.javaClass.simpleName + ": " + (e.message ?: "?"))
+        }
+    }
+
+    // ---------- UDP53 с классификацией ----------
+    fun udp53Ex(network: Network, server: String): Triple<String, Long, String?> {
+        val t0 = System.nanoTime()
+        fun ms() = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0)
+        return try {
+            DatagramSocket().use { s ->
+                network.bindSocket(s)
+                s.soTimeout = 3000
+                val query = byteArrayOf(0x12, 0x34, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 7) +
+                    "example".toByteArray(StandardCharsets.US_ASCII) + byteArrayOf(3) +
+                    "com".toByteArray(StandardCharsets.US_ASCII) + byteArrayOf(0, 0, 1, 0, 1)
+                s.send(DatagramPacket(query, query.size, InetSocketAddress(server, 53)))
+                val buf = ByteArray(512)
+                s.receive(DatagramPacket(buf, buf.size))
+                Triple("OK", ms(), null)
+            }
+        } catch (e: SocketTimeoutException) {
+            Triple("TIMEOUT", ms(), e.javaClass.simpleName)
+        } catch (e: Exception) {
+            Triple("ERROR", ms(), e.javaClass.simpleName + ": " + (e.message ?: "?"))
+        }
+    }
 
     // ---------- Активная сеть: ВСЕ тесты обязаны идти через неё ----------
     fun activeNetwork(): Network? = cm.activeNetwork
@@ -216,9 +303,12 @@ class ProbeEngine(private val ctx: Context, private val log: SessionLogger) {
             s.close()
             TlsResult(true, ver, alpn, connectMs, tlsMs, null)
         } catch (e: Exception) {
+            val cert = generateSequence<Throwable>(e) { it.cause }
+                .take(12).any { it is java.security.cert.CertificateException }
             TlsResult(false, "-", "-",
                 TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0), -1,
-                e.javaClass.simpleName + ": " + (e.message ?: "?"))
+                (if (cert) "CertificateException: " else "") +
+                    e.javaClass.simpleName + ": " + (e.message ?: "?"))
         }
     }
 
@@ -252,7 +342,7 @@ class ProbeEngine(private val ctx: Context, private val log: SessionLogger) {
                     "server picked h2, http/1.1 required for probe")
             }
             val req = ("GET / HTTP/1.1\r\nHost: " + host + "\r\n" +
-                "User-Agent: ConfigAllowlistProbe/0.1.1\r\n" +
+                "User-Agent: ConfigAllowlistProbe/0.1.4\r\n" +
                 "Accept: */*\r\nConnection: close\r\n\r\n").toByteArray(StandardCharsets.US_ASCII)
             s.getOutputStream().write(req)
             s.getOutputStream().flush()
